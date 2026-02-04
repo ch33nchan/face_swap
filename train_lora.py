@@ -100,7 +100,7 @@ def train_lora(
         transformer.train()
         
         for batch_idx, batch in enumerate(dataloader):
-            images = batch.to(device)
+            images = batch.to(device, dtype=torch.float16)
             
             with torch.no_grad():
                 latents = pipe.vae.encode(images).latent_dist.sample()
