@@ -13,10 +13,10 @@ wheels/
 .env
 .DS_Store
 
-# Training artifacts
+# Training artifacts (exclude outputs, but keep training data)
 lora_output/
-training_data/
 logs/
+downloaded_loras/
 
 # Model files
 *.safetensors
@@ -24,3 +24,8 @@ logs/
 *.pt
 *.bin
 *.pth
+
+# Test outputs
+output*.png
+base.jpg
+ref.jpg
