@@ -167,13 +167,16 @@ def train_lora(
             img_ids[:, 1] = torch.arange(height, device=device).repeat_interleave(width).to(torch.float16)
             img_ids[:, 2] = torch.arange(width, device=device).repeat(height).to(torch.float16)
             
+            # Flatten latents for transformer: (B, C, H, W) -> (B, H*W, C)
+            hidden_states = noisy_latents.permute(0, 2, 3, 1).reshape(batch_size, height * width, -1)
+            
             # Text position IDs (seq_len x 3)
             txt_seq_len = encoder_hidden_states.shape[1]
             txt_ids = torch.zeros(txt_seq_len, 3, device=device, dtype=torch.float16)
             
-            # Pass latents directly - transformer will handle reshaping
+            # Pass flattened hidden_states
             model_pred = transformer(
-                hidden_states=noisy_latents,
+                hidden_states=hidden_states,
                 timestep=timesteps_1d,
                 guidance=guidance_vec,
                 pooled_projections=pooled_prompt_embeds,
