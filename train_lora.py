@@ -78,6 +78,9 @@ def train_lora(
     transformer = get_peft_model(transformer, lora_config)
     transformer.print_trainable_parameters()
     
+    # Ensure transformer is in fp16
+    transformer = transformer.to(torch.float16)
+    
     pipe.transformer = transformer
     
     dataset = ImageDataset(image_dir)

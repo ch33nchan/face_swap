@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+if [ -z "$HF_TOKEN" ]; then
+    echo "ERROR: HF_TOKEN not set"
+    echo "Please run: export HF_TOKEN=\"your_token\""
+    exit 1
+fi
+
 source .venv/bin/activate
 
 LORA_PATH=${1:-"downloaded_loras/bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"}
