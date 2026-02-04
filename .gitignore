@@ -16,7 +16,7 @@ wheels/
 # Training artifacts (exclude outputs, but keep training data)
 # Training artifacts
 # lora_output/
-logs/
+# logs/
 downloaded_loras/
 
 # Model files
@@ -27,6 +27,6 @@ downloaded_loras/
 *.pth
 
 # Test outputs
-output*.png
+# output*.png
 base.jpg
 ref.jpg
