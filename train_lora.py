@@ -135,9 +135,9 @@ def train_lora(
                 # T5 encoder_hidden_states
                 t5_output = pipe.text_encoder_2(
                     pipe.tokenizer_2(
-                        "",
+                        "A photo of sks person",
                         padding="max_length",
-                        max_length=pipe.tokenizer_2.model_max_length,
+                        max_length=512,
                         truncation=True,
                         return_tensors="pt",
                     ).input_ids.to(device)
@@ -147,7 +147,7 @@ def train_lora(
                 # CLIP pooled embeddings
                 clip_output = pipe.text_encoder(
                     pipe.tokenizer(
-                        "",
+                        "A photo of sks person",
                         padding="max_length",
                         max_length=pipe.tokenizer.model_max_length,
                         truncation=True,

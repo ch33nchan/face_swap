@@ -65,15 +65,13 @@ def main():
 
     print("Loading LoRA...")
     try:
-        # TEMP: Disable LoRA to check if base model works
-        # pipe.transformer = PeftModel.from_pretrained(pipe.transformer, "lora_output/lora_final")
-        # print("LoRA loaded.")
-        print("SKIPPING LoRA to test base model.")
+        pipe.transformer = PeftModel.from_pretrained(pipe.transformer, "lora_output/lora_final")
+        print("LoRA loaded.")
     except Exception as e:
         print(f"Failed to load LoRA: {e}")
         return
     
-    prompt = "photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
+    prompt = "A photo of sks person, photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
     print(f"Using Prompt: {prompt}")
     
     for item in targets:
