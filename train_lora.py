@@ -160,6 +160,8 @@ def train_lora(
             
             # FLUX packing: (B, C, H, W) -> (B, (H//2)*(W//2), C*4)
             # Standard patch_size is 2. Input channels 16 -> 64.
+            batch_size = latents.shape[0]
+            height, width = latents.shape[2], latents.shape[3]
             patch_size = 2
             channel_dim = noisy_latents.shape[1]
             
