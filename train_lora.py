@@ -1,24 +1,22 @@
 import argparse
 import os
 from pathlib import Path
+import logging
+import json
 import torch
-from diffusers import FluxPipeline
-from diffusers.loaders import AttnProcsLayers
-from diffusers.models.attention_processor import LoRAAttnProcessor2_0
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
-from tqdm import tqdm
-import logging
-import json
-import matplotlib.pyplot as plt
+from diffusers import FluxPipeline
+from peft import LoraConfig, get_peft_model
 from torch.utils.tensorboard import SummaryWriter
+import matplotlib.pyplot as plt
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class FaceDataset(Dataset):
+class ImageDataset(Dataset):
     def __init__(self, image_dir: str, size: int = 512):
         self.image_paths = list(Path(image_dir).glob("*.jpg")) + list(Path(image_dir).glob("*.png"))
         self.transform = transforms.Compose([
@@ -44,7 +42,6 @@ def train_lora(
     learning_rate: float = 1e-4,
     num_epochs: int = 100,
     batch_size: int = 1,
-    gradient_accumulation_steps: int = 4,
     save_every: int = 10,
     device: str = "cuda",
 ):
@@ -64,89 +61,104 @@ def train_lora(
         token=hf_token,
     ).to(device)
     
-    unet = pipe.transformer
-    unet.requires_grad_(False)
+    transformer = pipe.transformer
+    transformer.requires_grad_(False)
     
-    lora_attn_procs = {}
-    for name in unet.attn_processors.keys():
-        lora_attn_procs[name] = LoRAAttnProcessor2_0(
-            rank=rank,
-            network_alpha=rank,
-        )
+    logger.info(f"Adding LORA adapters with rank {rank}")
+    from peft import LoraConfig,get_peft_model
     
-    unet.set_attn_processor(lora_attn_procs)
+    lora_config = LoraConfig(
+        r=rank,
+        lora_alpha=rank,
+        target_modules=["to_k", "to_q", "to_v", "to_out.0"],
+        lora_dropout=0.0,
+        bias="none",
+    )
     
-    lora_layers = AttnProcsLayers(unet.attn_processors)
-    lora_layers.to(device, dtype=torch.float16)
+    transformer = get_peft_model(transformer, lora_config)
+    transformer.print_trainable_parameters()
     
-    optimizer = torch.optim.AdamW(lora_layers.parameters(), lr=learning_rate)
+    pipe.transformer = transformer
     
-    dataset = FaceDataset(image_dir)
+    dataset = ImageDataset(image_dir)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
-    logger.info(f"Training on {len(dataset)} images for {num_epochs} epochs")
+    optimizer = torch.optim.AdamW(transformer.parameters(), lr=learning_rate)
     
     metrics = {
-        "epoch_losses": [],
         "step_losses": [],
-        "epochs": [],
+        "epoch_losses": [],
         "steps": [],
+        "epochs": [],
     }
     
     global_step = 0
-    epoch_loss_accum = 0.0
+    logger.info(f"Starting training for {num_epochs} epochs on {len(dataset)} images")
     
     for epoch in range(num_epochs):
         epoch_loss = 0.0
-        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")
+        transformer.train()
         
-        for step, batch in enumerate(progress_bar):
-            batch = batch.to(device, dtype=torch.float16)
+        for batch_idx, batch in enumerate(dataloader):
+            images = batch.to(device)
             
-            latents = pipe.vae.encode(batch).latent_dist.sample()
-            latents = latents * pipe.vae.config.scaling_factor
+            with torch.no_grad():
+                latents = pipe.vae.encode(images).latent_dist.sample()
+                latents = latents * pipe.vae.config.scaling_factor
             
             noise = torch.randn_like(latents)
-            timesteps = torch.randint(0, pipe.scheduler.config.num_train_timesteps, (batch.shape[0],), device=device)
+            timesteps = torch.randint(
+                0, pipe.scheduler.config.num_train_timesteps,
+                (latents.shape[0],), device=device
+            ).long()
             
             noisy_latents = pipe.scheduler.add_noise(latents, noise, timesteps)
             
-            noise_pred = unet(noisy_latents, timesteps).sample
+            with torch.no_grad():
+                prompt_embeds = pipe.text_encoder(
+                    torch.zeros((latents.shape[0],), device=device, dtype=torch.long)
+                )[0]
             
-            loss = torch.nn.functional.mse_loss(noise_pred, noise, reduction="mean")
-            loss_value = loss.item()
+            model_pred = transformer(
+                noisy_latents,
+                timesteps,
+                prompt_embeds,
+                return_dict=False,
+            )[0]
             
-            loss = loss / gradient_accumulation_steps
+            loss = torch.nn.functional.mse_loss(model_pred, noise)
+            
+            optimizer.zero_grad()
             loss.backward()
+            optimizer.step()
             
-            if (step + 1) % gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-                
-                metrics["step_losses"].append(loss_value)
-                metrics["steps"].append(global_step)
-                writer.add_scalar("Loss/step", loss_value, global_step)
-                
-                global_step += 1
-            
+            loss_value = loss.item()
             epoch_loss += loss_value
-            progress_bar.set_postfix({"loss": f"{loss_value:.4f}"})
+            
+            metrics["step_losses"].append(loss_value)
+            metrics["steps"].append(global_step)
+            writer.add_scalar("Loss/step", loss_value, global_step)
+            
+            if global_step % 10 == 0:
+                logger.info(f"Epoch {epoch+1}/{num_epochs}, Step {global_step}, Loss: {loss_value:.6f}")
+            
+            global_step += 1
         
         avg_epoch_loss = epoch_loss / len(dataloader)
         metrics["epoch_losses"].append(avg_epoch_loss)
         metrics["epochs"].append(epoch + 1)
         writer.add_scalar("Loss/epoch", avg_epoch_loss, epoch + 1)
         
-        logger.info(f"Epoch {epoch+1}/{num_epochs} - Avg Loss: {avg_epoch_loss:.4f}")
+        logger.info(f"Epoch {epoch+1} completed. Average loss: {avg_epoch_loss:.6f}")
         
-        if (epoch + 1) % save_every == 0 or (epoch + 1) == num_epochs:
-            save_path = output_path / f"lora_epoch_{epoch+1}.safetensors"
-            pipe.save_lora_weights(save_path, unet=unet)
-            logger.info(f"Saved checkpoint to {save_path}")
+        if (epoch + 1) % save_every == 0:
+            checkpoint_path = output_path / f"lora_epoch_{epoch+1}"
+            transformer.save_pretrained(checkpoint_path)
+            logger.info(f"Saved checkpoint to {checkpoint_path}")
     
-    final_path = output_path / "lora_final.safetensors"
-    pipe.save_lora_weights(final_path, unet=unet)
-    logger.info(f"Training complete. Final weights saved to {final_path}")
+    final_path = output_path / "lora_final"
+    transformer.save_pretrained(final_path)
+    logger.info(f"Training complete. Final LORA saved to {final_path}")
     
     with open(output_path / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
@@ -175,7 +187,7 @@ def train_lora(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train LORA for face swap")
+    parser = argparse.ArgumentParser(description="Train LORA for FLUX face swap")
     parser.add_argument("--image-dir", type=str, required=True, help="Directory containing training images")
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory for LORA weights")
     parser.add_argument("--model-id", type=str, default="black-forest-labs/FLUX.1-dev")
@@ -183,7 +195,6 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
     parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N epochs")
     parser.add_argument("--device", type=str, default="cuda")
     
@@ -197,7 +208,6 @@ def main():
         learning_rate=args.lr,
         num_epochs=args.epochs,
         batch_size=args.batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
         save_every=args.save_every,
         device=args.device,
     )

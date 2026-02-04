@@ -18,3 +18,4 @@ matplotlib
 tensorboard
 requests
 huggingface_hub
+peft
