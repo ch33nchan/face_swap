@@ -15,7 +15,7 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     
     # Use FLUX Klein 9b model for BFS LORA
     pipeline = FaceSwapPipeline(
-        model_id="black-forest-labs/FLUX.2-klein-9b",
+        model_id="black-forest-labs/FLUX.2-klein-4b",
         device="cuda" if torch.cuda.is_available() else "cpu",
         lora_path=lora_path,
         lora_scale=1.0,
