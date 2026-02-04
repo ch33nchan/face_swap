@@ -32,10 +32,13 @@ class FaceSwapPipeline:
         )
         self.face_app.prepare(ctx_id=0 if device == "cuda" else -1, det_size=(640, 640))
         
+        hf_token = os.getenv("HF_TOKEN")
+        
         logger.info(f"Loading FLUX pipeline: {model_id}")
         self.pipe = FluxPipeline.from_pretrained(
             model_id,
             torch_dtype=dtype,
+            token=hf_token,
         ).to(device)
         
         self.pipe.vae.enable_slicing()

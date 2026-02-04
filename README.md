@@ -21,6 +21,18 @@ cd char_swap
 ./setup_gpu.sh
 ```
 
+**Authenticate with HuggingFace:**
+
+FLUX.1-dev is a gated model. You need to:
+
+1. Get token from https://huggingface.co/settings/tokens
+2. Accept FLUX license at https://huggingface.co/black-forest-labs/FLUX.1-dev
+3. Login:
+```bash
+export HF_TOKEN="your_token_here"
+# Or use: huggingface-cli login
+```
+
 ### 3. Train LORA
 
 ```bash
@@ -78,6 +90,29 @@ python3 src/cli.py \
   --reference-image ref.jpg \
   --output result.jpg \
   --lora-path lora_output/lora_final.safetensors
+```
+
+## Test Pre-trained LORAs
+
+Test existing LORA models from HuggingFace:
+
+```bash
+source .venv/bin/activate
+
+# BFS Best Face Swap
+./test_lora.sh Alissonerdx/BFS-Best-Face-Swap base.jpg reference.jpg output1.png
+
+# BFS Face Swap Video
+./test_lora.sh Alissonerdx/BFS-Best-Face-Swap-Video base.jpg reference.jpg output2.png
+```
+
+Or download manually:
+```bash
+python3 test_pretrained_lora.py \
+  --repo-id Alissonerdx/BFS-Best-Face-Swap \
+  --base-image base.jpg \
+  --reference-image ref.jpg \
+  --output result.png
 ```
 
 ## Structure

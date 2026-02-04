@@ -53,21 +53,41 @@ def train_lora(
     
     writer = SummaryWriter(log_dir=output_path / "logs")
     
+    hf_token = os.getenv("HF_TOKEN")
+    if not hf_token:
+        logger.warning("HF_TOKEN not set. Some models may require authentication.")
+    
     logger.info(f"Loading model: {model_id}")
     pipe = FluxPipeline.from_pretrained(
         model_id,
         torch_dtype=torch.float16,
+        token=hf_token,
     ).to(device)
     
     unet = pipe.transformer
     unet.requires_grad_(False)
     
+    lora_rank = rank
     lora_attn_procs = {}
-    for name in unet.attn_processors.keys():
-        lora_attn_procs[name] = LoRAAttnProcessor2_0(
-            hidden_size=unet.config.attention_head_dim * unet.config.num_attention_heads,
-            rank=rank,
-        )
+    
+    for name, attn_processor in unet.attn_processors.items():
+        cross_attention_dim = None if name.endswith("attn1.processor") else unet.config.cross_attention_dim
+        if name.startswith("mid_block"):
+            hidden_size = unet.config.block_out_channels[-1]
+        elif name.startswith("up_blocks"):
+            block_id = int(name[len("up_blocks.")])
+            hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
+        elif name.startswith("down_blocks"):
+            block_id = int(name[len("down_blocks.")])
+            hidden_size = unet.config.block_out_channels[block_id]
+        else:
+            hidden_size = None
+        
+        if hidden_size is not None:
+            lora_attn_procs[name] = LoRAAttnProcessor2_0(
+                rank=lora_rank,
+                network_alpha=lora_rank,
+            )
     
     unet.set_attn_processor(lora_attn_procs)
     
