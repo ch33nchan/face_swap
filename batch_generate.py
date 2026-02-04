@@ -47,13 +47,19 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     try:
+        from diffusers import AutoencoderKL
+        # Load VAE in float32 to avoid artifacts
+        vae = AutoencoderKL.from_pretrained(
+            "black-forest-labs/FLUX.1-dev",
+            subfolder="vae",
+            torch_dtype=torch.float32
+        ).to(device)
+
         pipe = FluxImg2ImgPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
+            vae=vae,
             torch_dtype=torch.bfloat16
         ).to(device)
-        
-        # CRITICAL: Force VAE to float32 to avoid artifacts/noise
-        pipe.vae = pipe.vae.to(dtype=torch.float32)
         
     except Exception as e:
         print(f"Error loading FluxImg2ImgPipeline: {e}")
