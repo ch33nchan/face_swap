@@ -65,8 +65,10 @@ def main():
 
     print("Loading LoRA...")
     try:
-        pipe.transformer = PeftModel.from_pretrained(pipe.transformer, "lora_output/lora_final")
-        print("LoRA loaded.")
+        # TEMP: Disable LoRA to check if base model works
+        # pipe.transformer = PeftModel.from_pretrained(pipe.transformer, "lora_output/lora_final")
+        # print("LoRA loaded.")
+        print("SKIPPING LoRA to test base model.")
     except Exception as e:
         print(f"Failed to load LoRA: {e}")
         return
