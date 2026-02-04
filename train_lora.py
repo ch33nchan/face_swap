@@ -142,14 +142,22 @@ def train_lora(
                         return_tensors="pt",
                     ).input_ids.to(device)
                 )[0]
+                
+                # Get pooled embeddings from the text encoder 2
+                pooled_prompt_embeds = pooled_prompt_embeds.pooler_output
+            
+            # FLUX requires guidance value, not timestep directly
+            # Use guidance=3.5 as default for training
+            guidance_vec = torch.full((latents.shape[0],), 3.5, device=device, dtype=torch.float16)
             
             # Get model prediction
-            timesteps_single = timesteps.squeeze().to(device)
+            timesteps_single = timesteps.squeeze()
             model_pred = transformer(
                 hidden_states=noisy_latents,
-                timestep=timesteps_single,
-                encoder_hidden_states=prompt_embeds,
+                timestep=timesteps_single / 1000.0,  # Normalize timestep
+                guidance=guidance_vec,
                 pooled_projections=pooled_prompt_embeds,
+                encoder_hidden_states=prompt_embeds,
                 return_dict=False,
             )[0]
             

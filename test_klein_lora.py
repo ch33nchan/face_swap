@@ -3,33 +3,88 @@ import os
 from pathlib import Path
 import torch
 from PIL import Image
-from src.face_swap import FaceSwapPipeline
+from diffusers import FluxImg2ImgPipeline
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def download_klein_lora(repo_id: str):
+    """Download Klein-compatible LORA from HuggingFace"""
+    from huggingface_hub import hf_hub_download, list_repo_files
+    
+    hf_token = os.getenv("HF_TOKEN")
+    output_dir = Path("downloaded_loras")
+    output_dir.mkdir(exist_ok=True)
+    
+    logger.info(f"Listing files in {repo_id}")
+    files = list_repo_files(repo_id, token=hf_token)
+    
+    # Find Klein 4b LORA
+    klein_files = [f for f in files if "klein" in f.lower() and f.endswith(".safetensors")]
+    
+    if not klein_files:
+        raise ValueError(f"No Klein LORA files found in {repo_id}")
+    
+    # Prefer 4b version
+    target_file = None
+    for f in klein_files:
+        if "4b" in f:
+            target_file = f
+            break
+    
+    if not target_file:
+        target_file = klein_files[0]
+    
+    logger.info(f"Downloading {target_file}")
+    lora_path = hf_hub_download(
+        repo_id=repo_id,
+        filename=target_file,
+        local_dir=output_dir,
+        token=hf_token,
+    )
+    
+    logger.info(f"Downloaded to {lora_path}")
+    return lora_path
+
+
 def test_klein_lora(lora_path: str, base_image: str, reference_image: str, output_path: str):
     logger.info(f"Initializing FLUX Klein pipeline with LORA: {lora_path}")
     
-    # Use FLUX Klein 9b model for BFS LORA
-    pipeline = FaceSwapPipeline(
-        model_id="black-forest-labs/FLUX.2-klein-4b",
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        lora_path=lora_path,
-        lora_scale=1.0,
-    )
+    hf_token = os.getenv("HF_TOKEN")
+    if not hf_token:
+        raise ValueError("HF_TOKEN required for Klein model")
     
-    logger.info("Running face swap with Klein model")
-    result = pipeline.swap_face(
-        base_image=base_image,
-        reference_image=reference_image,
-        prompt="high quality portrait, detailed face, natural lighting, photorealistic",
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    # Load Klein img2img pipeline
+    logger.info("Loading FLUX Klein model...")
+    pipe = FluxImg2ImgPipeline.from_pretrained(
+        "black-forest-labs/FLUX.2-klein-4b",
+        torch_dtype=torch.float16,
+        token=hf_token,
+    ).to(device)
+    
+    # Load LORA
+    logger.info(f"Loading LORA weights from {lora_path}")
+    pipe.load_lora_weights(lora_path)
+    
+    # Load images
+    base_img = Image.open(base_image).convert("RGB")
+    ref_img = Image.open(reference_image).convert("RGB")
+    
+    # Create prompt for face swap
+    prompt = "high quality portrait, detailed face, photorealistic, natural lighting"
+    
+    logger.info("Running face swap with Klein + LORA")
+    result = pipe(
+        prompt=prompt,
+        image=base_img,
+        strength=0.75,
         num_inference_steps=28,
         guidance_scale=3.5,
-        strength=0.75,
-    )
+    ).images[0]
     
     result.save(output_path)
     logger.info(f"Saved result to {output_path}")
@@ -37,14 +92,20 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
 
 def main():
     parser = argparse.ArgumentParser(description="Test BFS LORA with FLUX Klein")
-    parser.add_argument("--lora-path", type=str, required=True, help="Path to BFS LORA file")
-    parser.add_argument("--base-image", type=str, required=True, help="Base image path")
-    parser.add_argument("--reference-image", type=str, required=True, help="Reference image path")
-    parser.add_argument("--output", type=str, default="output_klein.png", help="Output image path")
+    parser.add_argument("--repo-id", type=str, default="Alissonerdx/BFS-Best-Face-Swap")
+    parser.add_argument("--lora-path", type=str, help="Path to LORA file (downloads if not provided)")
+    parser.add_argument("--base-image", type=str, required=True)
+    parser.add_argument("--reference-image", type=str, required=True)
+    parser.add_argument("--output", type=str, default="output_klein.png")
     
     args = parser.parse_args()
     
-    test_klein_lora(args.lora_path, args.base_image, args.reference_image, args.output)
+    if args.lora_path:
+        lora_path = args.lora_path
+    else:
+        lora_path = download_klein_lora(args.repo_id)
+    
+    test_klein_lora(lora_path, args.base_image, args.reference_image, args.output)
 
 
 if __name__ == "__main__":
