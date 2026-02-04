@@ -47,7 +47,7 @@ def download_klein_lora(repo_id: str):
 
 
 def test_klein_lora(lora_path: str, base_image: str, reference_image: str, output_path: str):
-    """Test Klein LORA using the diffusers pipeline with proper loading"""
+    """Test Klein LORA using Flux2Pipeline"""
     logger.info(f"Testing LORA: {lora_path}")
     
     hf_token = os.getenv("HF_TOKEN")
@@ -56,17 +56,14 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Klein model uses a different architecture - use Flux2 pipeline
-    from diffusers import DiffusionPipeline
+    from diffusers import Flux2Pipeline
     
     logger.info("Loading FLUX Klein pipeline...")
     
-    # Load the full pipeline which handles component mismatch
-    pipe = DiffusionPipeline.from_pretrained(
+    pipe = Flux2Pipeline.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
         torch_dtype=torch.float16,
         token=hf_token,
-        trust_remote_code=True,
     )
     pipe = pipe.to(device)
     

@@ -155,22 +155,24 @@ def train_lora(
             # Get model prediction - timesteps must be 1D
             timesteps_1d = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
             
-            # Create txt_ids and img_ids required by FLUX
+            # Create txt_ids and img_ids required by FLUX (2D tensors)
             batch_size = latents.shape[0]
             height, width = latents.shape[2], latents.shape[3]
             
-            # Image position IDs
-            img_ids = torch.zeros(height, width, 3, device=device, dtype=torch.float16)
-            img_ids[..., 1] = torch.arange(height, device=device)[:, None]
-            img_ids[..., 2] = torch.arange(width, device=device)[None, :]
-            img_ids = img_ids.reshape(1, height * width, 3).expand(batch_size, -1, -1)
+            # Flatten latents for transformer: (B, C, H, W) -> (B, H*W, C)
+            hidden_states = noisy_latents.permute(0, 2, 3, 1).reshape(batch_size, height * width, -1)
             
-            # Text position IDs
+            # Image position IDs (2D: seq_len x 3)
+            img_ids = torch.zeros(height * width, 3, device=device, dtype=torch.float16)
+            img_ids[:, 1] = torch.arange(height, device=device).repeat_interleave(width).to(torch.float16)
+            img_ids[:, 2] = torch.arange(width, device=device).repeat(height).to(torch.float16)
+            
+            # Text position IDs (2D: seq_len x 3)
             txt_seq_len = encoder_hidden_states.shape[1]
-            txt_ids = torch.zeros(batch_size, txt_seq_len, 3, device=device, dtype=torch.float16)
+            txt_ids = torch.zeros(txt_seq_len, 3, device=device, dtype=torch.float16)
             
             model_pred = transformer(
-                hidden_states=noisy_latents,
+                hidden_states=hidden_states,
                 timestep=timesteps_1d,
                 guidance=guidance_vec,
                 pooled_projections=pooled_prompt_embeds,
