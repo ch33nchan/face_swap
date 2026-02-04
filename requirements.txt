@@ -1,0 +1,19 @@
+torch
+torchvision
+diffusers
+transformers
+insightface
+onnxruntime
+onnxruntime-gpu; sys_platform == 'linux'
+opencv-python
+Pillow
+numpy
+accelerate
+safetensors
+fastapi
+uvicorn
+pydantic
+gradio
+matplotlib
+tensorboard
+requests

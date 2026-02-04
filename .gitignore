@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment
+.env
+.DS_Store
+
+# Training artifacts
+lora_output/
+training_data/
+logs/
+
+# Model files
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+*.pth
