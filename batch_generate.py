@@ -49,11 +49,14 @@ def main():
     print("Loading FLUX Img2Img...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
+    print("Loading FLUX Img2Img...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     try:
-        # Revert to standard loading (bfloat16) to fix mismatch error
+        # Use float16 which is often more stable for VAE than bfloat16 on some hardware
         pipe = FluxImg2ImgPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
-            torch_dtype=torch.bfloat16
+            torch_dtype=torch.float16
         ).to(device)
     except Exception as e:
         print(f"Error loading FluxImg2ImgPipeline: {e}")
