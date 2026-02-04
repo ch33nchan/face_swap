@@ -46,21 +46,15 @@ def main():
     print("Loading FLUX Img2Img...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
+    print("Loading FLUX Img2Img...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     try:
-        from diffusers import AutoencoderKL
-        # Load VAE in float32 to avoid artifacts
-        vae = AutoencoderKL.from_pretrained(
-            "black-forest-labs/FLUX.1-dev",
-            subfolder="vae",
-            torch_dtype=torch.float32
-        ).to(device)
-
+        # Revert to standard loading (bfloat16) to fix mismatch error
         pipe = FluxImg2ImgPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
-            vae=vae,
             torch_dtype=torch.bfloat16
         ).to(device)
-        
     except Exception as e:
         print(f"Error loading FluxImg2ImgPipeline: {e}")
         print("Make sure diffusers is updated.")
