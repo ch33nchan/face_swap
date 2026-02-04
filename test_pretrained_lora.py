@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def download_lora_from_hf(repo_id: str, output_dir: str):
-    from huggingface_hub import hf_hub_download
+    from huggingface_hub import hf_hub_download, list_repo_files
     
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -21,37 +21,43 @@ def download_lora_from_hf(repo_id: str, output_dir: str):
     logger.info(f"Downloading LORA from {repo_id}")
     
     try:
+        files = list_repo_files(repo_id, token=hf_token)
+        logger.info(f"Available files: {files}")
+        
+        lora_files = [
+            "pytorch_lora_weights.safetensors",
+            "lora_weights.safetensors",
+            "adapter_model.safetensors",
+            "diffusion_pytorch_model.safetensors",
+            "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors",
+        ]
+        
+        safetensors_files = [f for f in files if f.endswith('.safetensors')]
+        if safetensors_files:
+            logger.info(f"Found .safetensors files: {safetensors_files}")
+            for known_file in lora_files:
+                if known_file in safetensors_files:
+                    target_file = known_file
+                    break
+            else:
+                target_file = safetensors_files[0]
+        else:
+            logger.error("No .safetensors files found in repo")
+            return None
+        
+        logger.info(f"Downloading {target_file}")
         lora_path = hf_hub_download(
             repo_id=repo_id,
-            filename="pytorch_lora_weights.safetensors",
+            filename=target_file,
             local_dir=output_path,
             token=hf_token,
         )
         logger.info(f"Downloaded to {lora_path}")
         return lora_path
+        
     except Exception as e:
         logger.error(f"Download failed: {e}")
-        try:
-            files = [
-                "lora_weights.safetensors",
-                "adapter_model.safetensors",
-                "diffusion_pytorch_model.safetensors",
-            ]
-            for filename in files:
-                try:
-                    lora_path = hf_hub_download(
-                        repo_id=repo_id,
-                        filename=filename,
-                        local_dir=output_path,
-                        token=hf_token,
-                    )
-                    logger.info(f"Downloaded {filename} to {lora_path}")
-                    return lora_path
-                except:
-                    continue
-        except Exception as e2:
-            logger.error(f"All download attempts failed: {e2}")
-            return None
+        return None
 
 
 def test_lora(lora_path: str, base_image: str, reference_image: str, output_path: str):
