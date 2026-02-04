@@ -23,7 +23,10 @@ def test_my_lora(lora_path, prompt, output_path, gpu_id):
 
     print(f"Loading LoRA from {lora_path}...")
     try:
-        pipe.load_lora_weights(lora_path)
+        from peft import PeftModel
+        # Load LoRA directly onto the transformer (matching training setup)
+        pipe.transformer = PeftModel.from_pretrained(pipe.transformer, lora_path)
+        print("LoRA loaded successfully via PeftModel")
     except Exception as e:
         print(f"Error loading LoRA: {e}")
         return
