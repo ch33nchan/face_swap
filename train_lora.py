@@ -155,12 +155,28 @@ def train_lora(
             # Get model prediction - timesteps must be 1D
             timesteps_1d = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
             
+            # Create txt_ids and img_ids required by FLUX
+            batch_size = latents.shape[0]
+            height, width = latents.shape[2], latents.shape[3]
+            
+            # Image position IDs
+            img_ids = torch.zeros(height, width, 3, device=device, dtype=torch.float16)
+            img_ids[..., 1] = torch.arange(height, device=device)[:, None]
+            img_ids[..., 2] = torch.arange(width, device=device)[None, :]
+            img_ids = img_ids.reshape(1, height * width, 3).expand(batch_size, -1, -1)
+            
+            # Text position IDs
+            txt_seq_len = encoder_hidden_states.shape[1]
+            txt_ids = torch.zeros(batch_size, txt_seq_len, 3, device=device, dtype=torch.float16)
+            
             model_pred = transformer(
                 hidden_states=noisy_latents,
                 timestep=timesteps_1d,
                 guidance=guidance_vec,
                 pooled_projections=pooled_prompt_embeds,
                 encoder_hidden_states=encoder_hidden_states,
+                txt_ids=txt_ids,
+                img_ids=img_ids,
                 return_dict=False,
             )[0]
             
