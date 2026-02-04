@@ -149,11 +149,12 @@ def train_lora(
             # FLUX requires guidance value
             guidance_vec = torch.full((latents.shape[0],), 3.5, device=device, dtype=torch.float16)
             
-            # Get model prediction
-            timesteps_single = timesteps.squeeze()
+            # Get model prediction - timesteps must be 1D
+            timesteps_1d = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
+            
             model_pred = transformer(
                 hidden_states=noisy_latents,
-                timestep=timesteps_single / 1000.0,  # Normalize timestep
+                timestep=timesteps_1d,
                 guidance=guidance_vec,
                 pooled_projections=pooled_prompt_embeds,
                 encoder_hidden_states=prompt_embeds,

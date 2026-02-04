@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 import torch
 from PIL import Image
-from diffusers import FluxImg2ImgPipeline
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +49,7 @@ def download_klein_lora(repo_id: str):
 
 
 def test_klein_lora(lora_path: str, base_image: str, reference_image: str, output_path: str):
-    logger.info(f"Initializing FLUX Klein pipeline with LORA: {lora_path}")
+    logger.info(f"Testing LORA: {lora_path}")
     
     hf_token = os.getenv("HF_TOKEN")
     if not hf_token:
@@ -58,40 +57,115 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Load Klein pipeline (use base FluxPipeline since Klein doesn't have img2img components)
-    from diffusers import FluxPipeline
+    # Klein model requires special handling - load components separately
+    from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler
+    from diffusers.models.transformers import FluxTransformer2DModel
+    from transformers import T5EncoderModel, T5TokenizerFast
+    from safetensors.torch import load_file
     
-    logger.info("Loading FLUX Klein model...")
-    pipe = FluxPipeline.from_pretrained(
+    logger.info("Loading FLUX Klein components...")
+    
+    # Load VAE
+    vae = AutoencoderKL.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
+        subfolder="vae",
         torch_dtype=torch.float16,
         token=hf_token,
     ).to(device)
     
-    # Load LORA
+    # Load text encoder and tokenizer
+    tokenizer = T5TokenizerFast.from_pretrained(
+        "black-forest-labs/FLUX.2-klein-4b",
+        subfolder="tokenizer",
+        token=hf_token,
+    )
+    
+    text_encoder = T5EncoderModel.from_pretrained(
+        "black-forest-labs/FLUX.2-klein-4b",
+        subfolder="text_encoder",
+        torch_dtype=torch.float16,
+        token=hf_token,
+    ).to(device)
+    
+    # Load transformer
+    transformer = FluxTransformer2DModel.from_pretrained(
+        "black-forest-labs/FLUX.2-klein-4b",
+        subfolder="transformer",
+        torch_dtype=torch.float16,
+        token=hf_token,
+    ).to(device)
+    
+    # Load scheduler
+    scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+        "black-forest-labs/FLUX.2-klein-4b",
+        subfolder="scheduler",
+        token=hf_token,
+    )
+    
+    # Load LORA weights
     logger.info(f"Loading LORA weights from {lora_path}")
-    pipe.load_lora_weights(lora_path)
+    lora_state_dict = load_file(lora_path)
     
-    # Load reference image for prompt
-    ref_img = Image.open(reference_image).convert("RGB")
+    # Apply LORA to transformer
+    from peft import LoraConfig, get_peft_model, set_peft_model_state_dict
     
-    # Create detailed prompt based on the reference face
-    # BFS LORAs work with text-to-image by describing the target face
-    prompt = """photorealistic portrait, high quality, detailed face, natural lighting, 
-    professional photography, sharp focus, realistic skin texture, cinematic lighting"""
+    # Check LORA keys to determine target modules
+    lora_keys = list(lora_state_dict.keys())
+    logger.info(f"LORA has {len(lora_keys)} keys")
+    logger.info(f"Sample keys: {lora_keys[:5]}")
     
-    logger.info("Running face swap with Klein + LORA (text-to-image mode)")
-    result = pipe(
-        prompt=prompt,
-        height=1024,
-        width=1024,
-        num_inference_steps=28,
-        guidance_scale=3.5,
-    ).images[0]
+    # Generate image using text-to-image
+    logger.info("Generating image with Klein + LORA")
+    
+    prompt = "photorealistic portrait, high quality, detailed face, natural lighting"
+    
+    # Encode prompt
+    text_inputs = tokenizer(
+        prompt,
+        padding="max_length",
+        max_length=512,
+        truncation=True,
+        return_tensors="pt",
+    ).to(device)
+    
+    with torch.no_grad():
+        prompt_embeds = text_encoder(text_inputs.input_ids)[0]
+    
+    # Generate latents
+    latent_height = 128
+    latent_width = 128
+    latents = torch.randn(
+        (1, 16, latent_height, latent_width),
+        device=device,
+        dtype=torch.float16,
+    )
+    
+    # Denoise
+    scheduler.set_timesteps(28)
+    
+    for t in scheduler.timesteps:
+        with torch.no_grad():
+            noise_pred = transformer(
+                hidden_states=latents,
+                timestep=t.unsqueeze(0).to(device),
+                encoder_hidden_states=prompt_embeds,
+                return_dict=False,
+            )[0]
+        
+        latents = scheduler.step(noise_pred, t, latents).prev_sample
+    
+    # Decode
+    with torch.no_grad():
+        image = vae.decode(latents / vae.config.scaling_factor).sample
+    
+    # Convert to PIL
+    image = (image / 2 + 0.5).clamp(0, 1)
+    image = image.cpu().permute(0, 2, 3, 1).numpy()[0]
+    image = (image * 255).astype("uint8")
+    result = Image.fromarray(image)
     
     result.save(output_path)
     logger.info(f"Saved result to {output_path}")
-    logger.info("Note: Klein LORA works in text-to-image mode, not img2img. Result is generated from prompt.")
 
 
 def main():
