@@ -21,7 +21,6 @@ python3 train_lora.py \
     --rank "$RANK" \
     --lr 1e-4 \
     --batch-size 1 \
-    --gradient-accumulation-steps 4 \
     --save-every 10 \
     --device cuda
 

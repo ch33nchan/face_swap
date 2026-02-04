@@ -46,8 +46,20 @@ class FaceSwapPipeline:
         
         if lora_path and os.path.exists(lora_path):
             logger.info(f"Loading LORA from {lora_path}")
-            self.pipe.load_lora_weights(lora_path)
-            self.pipe.fuse_lora(lora_scale=lora_scale)
+            
+            if os.path.isdir(lora_path):
+                from peft import PeftModel
+                logger.info("Loading peft LORA format")
+                self.pipe.transformer = PeftModel.from_pretrained(
+                    self.pipe.transformer,
+                    lora_path,
+                )
+            elif lora_path.endswith('.safetensors'):
+                logger.info("Loading standard safetensors LORA")
+                self.pipe.load_lora_weights(lora_path)
+                self.pipe.fuse_lora(lora_scale=lora_scale)
+            else:
+                logger.warning(f"Unrecognized LORA format: {lora_path}")
         
         logger.info("Pipeline initialized successfully")
 
