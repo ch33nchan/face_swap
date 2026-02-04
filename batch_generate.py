@@ -2,8 +2,23 @@
 import csv
 import os
 import torch
-from diffusers import FluxPipeline
+import requests
+from PIL import Image
+from io import BytesIO
+from diffusers import FluxImg2ImgPipeline
 from peft import PeftModel
+
+def download_image(url):
+    try:
+        print(f"Downloading {url}...")
+        response = requests.get(url, timeout=10)
+        img = Image.open(BytesIO(response.content)).convert("RGB")
+        # Resize to 1024x1024 for FLUX standard (optional but good for consistency)
+        img = img.resize((1024, 1024))
+        return img
+    except Exception as e:
+        print(f"Failed to download {url}: {e}")
+        return None
 
 def main():
     csv_file = "Master - Tech Solutioning - Char Const - Rerun with head_eye gaze.csv"
@@ -12,40 +27,34 @@ def main():
     
     print(f"Reading CSV: {csv_file}")
     targets = []
-    with open(csv_file, 'r', encoding='utf-8-sig') as f: # utf-8-sig handles BOM if present
-        reader = csv.reader(f)
-        try:
-            header = next(reader)
-        except StopIteration:
-            print("Empty CSV")
-            return
-            
-        # Find 'Fix Char Const' column index
-        try:
-            col_idx = header.index("Fix Char Const")
-        except ValueError:
-            print("Column 'Fix Char Const' not found.")
-            print(f"Available columns: {header}")
-            return
-
+    
+    with open(csv_file, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
         for idx, row in enumerate(reader):
-            if len(row) > col_idx:
-                val = row[col_idx].strip().lower()
-                if val == 'no':
-                    targets.append(idx)
+            # idx is 0-based index of data rows
+            if row.get('Fix Char Const', '').strip().lower() == 'no':
+                targets.append({
+                    'row_idx': idx + 2, # Match Excel row number (Header=1)
+                    'url': row.get('Original Image', '').strip()
+                })
 
     print(f"Found {len(targets)} rows with 'Fix Char Const' = NO")
     
     if not targets:
         return
 
-    print("Loading FLUX...")
+    print("Loading FLUX Img2Img...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Use bfloat16 as per training
-    pipe = FluxPipeline.from_pretrained(
-        "black-forest-labs/FLUX.1-dev",
-        torch_dtype=torch.bfloat16
-    ).to(device)
+    
+    try:
+        pipe = FluxImg2ImgPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-dev",
+            torch_dtype=torch.bfloat16
+        ).to(device)
+    except Exception as e:
+        print(f"Error loading FluxImg2ImgPipeline: {e}")
+        print("Make sure diffusers is updated.")
+        return
 
     print("Loading LoRA...")
     try:
@@ -58,21 +67,35 @@ def main():
     prompt = "photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
     print(f"Using Prompt: {prompt}")
     
-    for idx in targets:
-        row_num = idx + 2 # Header is row 1
-        print(f"Generating for CSV Row {row_num}...")
+    for item in targets:
+        row_num = item['row_idx']
+        url = item['url']
         
-        image = pipe(
-            prompt,
-            height=1024,
-            width=1024,
-            num_inference_steps=28,
-            guidance_scale=3.5,
-        ).images[0]
+        print(f"Processing Row {row_num}...")
         
-        save_path = os.path.join(output_dir, f"row_{row_num}.png")
-        image.save(save_path)
-        print(f"Saved {save_path}")
+        if not url:
+            print(f"Skipping Row {row_num}: No URL provided.")
+            continue
+            
+        init_image = download_image(url)
+        if init_image is None:
+            continue
+            
+        print("Running generation...")
+        try:
+            image = pipe(
+                prompt=prompt,
+                image=init_image,
+                strength=0.75, # 0.75 allows fair amount of change while keeping structure
+                num_inference_steps=28,
+                guidance_scale=3.5,
+            ).images[0]
+            
+            save_path = os.path.join(output_dir, f"row_{row_num}.png")
+            image.save(save_path)
+            print(f"Saved {save_path}")
+        except Exception as e:
+            print(f"Generation failed for Row {row_num}: {e}")
 
 if __name__ == "__main__":
     main()
