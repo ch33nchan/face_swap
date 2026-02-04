@@ -107,16 +107,16 @@ def train_lora(
             
             with torch.no_grad():
                 latents = pipe.vae.encode(images).latent_dist.sample()
-                latents = latents * pipe.vae.config.scaling_factor
+                latents = (latents * pipe.vae.config.scaling_factor).to(torch.float16)
             
             # Flow matching: interpolate between noise and latent
-            noise = torch.randn_like(latents)
+            noise = torch.randn_like(latents, dtype=torch.float16)
             # Random timestep between 0 and 1
-            timesteps = torch.rand((latents.shape[0],), device=device)
+            timesteps = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
             timesteps = timesteps.view(-1, 1, 1, 1)
             
             # Linear interpolation for flow matching
-            noisy_latents = timesteps * latents + (1 - timesteps) * noise
+            noisy_latents = (timesteps * latents + (1 - timesteps) * noise).to(torch.float16)
             
             # Target is the direction from noise to latent
             target = latents - noise

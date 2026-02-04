@@ -94,13 +94,14 @@ python3 src/cli.py \
 
 ## Test Pre-trained LORAs
 
-**Note**: The BFS pre-trained LORAs from HuggingFace are trained on FLUX Klein models, not FLUX.1-dev. They may not be compatible with this codebase which uses FLUX.1-dev.
+**Important**: The BFS pre-trained LORAs from HuggingFace (Alissonerdx/BFS-Best-Face-Swap) are **NOT compatible** with this codebase.
 
-To use BFS LORAs:
-1. Download manually
-2. Use with the appropriate Klein model instead
+**Reasons**:
+1. BFS LORAs are trained on **FLUX Klein** models (4b/9b), not FLUX.1-dev
+2. FLUX.1-dev doesn't support img2img (image editing) - it's text-to-image only
+3. Klein models require gated access and different pipeline setup
 
-For testing with FLUX.1-dev, train your own LORA using the training script below.
+**To test LORAs**: Train your own on FLUX.1-dev using the training script below, or use a Klein-compatible pipeline (not included in this repo).
 
 ## Structure
 
