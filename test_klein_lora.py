@@ -82,14 +82,36 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
         logger.info("Continuing without LORA for testing...")
     
     # Generate image
-    prompt = "photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
+    prompt_text = "photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
     
-    # Klein pipeline (custom) seems brittle with chat templates, try simpler string first
-    # If it fails again, the pipeline code itself might be assuming certain prompt structure
+    logger.info("Generating image with prompt embeddings...")
     
-    logger.info("Generating image...")
+    # Manually encode prompt to bypass pipeline bug
+    # The pipeline's format_input() expects string but apply_chat_template() expects list
+    try:
+        messages = [{"role": "user", "content": prompt_text}]
+        text = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    except Exception as e:
+        logger.warning(f"Template failed: {e}. Using raw text.")
+        text = prompt_text
+
+    text_inputs = pipe.tokenizer(
+        text,
+        padding="max_length",
+        max_length=256,
+        truncation=True,
+        return_tensors="pt",
+    ).to("cuda")
+    
+    with torch.no_grad():
+        prompt_embeds = pipe.text_encoder(text_inputs.input_ids)[0]
+    
+    # We also need 'text_ids' for FLUX.2 usually? 
+    # But pipe() might handle missing text_ids if prompt_embeds is passed.
+    # Let's try passing prompt_embeds directly.
+    
     result = pipe(
-        prompt=prompt,
+        prompt_embeds=prompt_embeds,
         height=1024,
         width=1024,
         num_inference_steps=28,
