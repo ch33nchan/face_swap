@@ -64,10 +64,12 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     logger.info("Loading FLUX Klein pipeline...")
     
     # Load without device_map (handled by CUDA_VISIBLE_DEVICES + .to("cuda"))
+    # Disable low_cpu_mem_usage to avoid meta tensors with custom pipeline
     pipe = Flux2Pipeline.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
         torch_dtype=torch.float16,
         token=hf_token,
+        low_cpu_mem_usage=False,
     ).to("cuda")
     
     # Load LORA weights

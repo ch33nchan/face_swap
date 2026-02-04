@@ -158,23 +158,30 @@ def train_lora(
             # Timestep for this batch
             timesteps_1d = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
             
-            # Create position IDs (2D tensors as required by new diffusers)
-            batch_size = latents.shape[0]
-            height, width = latents.shape[2], latents.shape[3]
+            # FLUX packing: (B, C, H, W) -> (B, (H//2)*(W//2), C*4)
+            # Standard patch_size is 2. Input channels 16 -> 64.
+            patch_size = 2
+            channel_dim = noisy_latents.shape[1]
             
-            # Image position IDs (seq_len x 3)
-            img_ids = torch.zeros(height * width, 3, device=device, dtype=torch.float16)
-            img_ids[:, 1] = torch.arange(height, device=device).repeat_interleave(width).to(torch.float16)
-            img_ids[:, 2] = torch.arange(width, device=device).repeat(height).to(torch.float16)
+            # Pack latents
+            hidden_states = noisy_latents.view(batch_size, channel_dim, height // patch_size, patch_size, width // patch_size, patch_size)
+            hidden_states = hidden_states.permute(0, 2, 4, 1, 3, 5)
+            hidden_states = hidden_states.reshape(batch_size, (height // patch_size) * (width // patch_size), channel_dim * patch_size * patch_size)
             
-            # Flatten latents for transformer: (B, C, H, W) -> (B, H*W, C)
-            hidden_states = noisy_latents.permute(0, 2, 3, 1).reshape(batch_size, height * width, -1)
+            # Prepare img_ids for packed latents
+            # Grid size is reduced by patch_size
+            packed_height = height // patch_size
+            packed_width = width // patch_size
+            
+            img_ids = torch.zeros(packed_height * packed_width, 3, device=device, dtype=torch.float16)
+            img_ids[:, 1] = torch.arange(packed_height, device=device).repeat_interleave(packed_width).to(torch.float16)
+            img_ids[:, 2] = torch.arange(packed_width, device=device).repeat(packed_height).to(torch.float16)
             
             # Text position IDs (seq_len x 3)
             txt_seq_len = encoder_hidden_states.shape[1]
             txt_ids = torch.zeros(txt_seq_len, 3, device=device, dtype=torch.float16)
             
-            # Pass flattened hidden_states
+            # Pass packed hidden_states
             model_pred = transformer(
                 hidden_states=hidden_states,
                 timestep=timesteps_1d,
@@ -186,8 +193,16 @@ def train_lora(
                 return_dict=False,
             )[0]
             
+            # Unpack model_pred for loss calculation: (B, L, C*4) -> (B, 16, H, W)
+            # But wait, loss is computed in latent space.
+            # We should pack 'target' (noise) as well to match model_pred shape!
+            
+            target_packed = target.view(batch_size, channel_dim, height // patch_size, patch_size, width // patch_size, patch_size)
+            target_packed = target_packed.permute(0, 2, 4, 1, 3, 5)
+            target_packed = target_packed.reshape(batch_size, (height // patch_size) * (width // patch_size), channel_dim * patch_size * patch_size)
+            
             # Compute loss
-            loss = torch.nn.functional.mse_loss(model_pred, target)
+            loss = torch.nn.functional.mse_loss(model_pred, target_packed)
             
             optimizer.zero_grad()
             loss.backward()
