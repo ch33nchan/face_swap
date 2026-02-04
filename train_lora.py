@@ -39,7 +39,7 @@ def train_lora(
     output_dir: str,
     model_id: str = "black-forest-labs/FLUX.1-dev",
     rank: int = 64,
-    learning_rate: float = 1e-4,
+    learning_rate: float = 5e-5,
     num_epochs: int = 100,
     batch_size: int = 1,
     save_every: int = 10,
@@ -47,6 +47,10 @@ def train_lora(
 ):
     device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
     logger.info(f"Using device: {device}")
+    
+    # Use bfloat16 for training to avoid NaNs (FLUX recommended)
+    weight_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    logger.info(f"Using dtype: {weight_dtype}")
     
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -60,7 +64,7 @@ def train_lora(
     logger.info(f"Loading model: {model_id}")
     pipe = FluxPipeline.from_pretrained(
         model_id,
-        torch_dtype=torch.float16,
+        torch_dtype=weight_dtype,
         token=hf_token,
     ).to(device)
     
@@ -82,7 +86,8 @@ def train_lora(
     transformer.print_trainable_parameters()
     
     # Ensure transformer is in fp16
-    transformer = transformer.to(torch.float16)
+    # Ensure transformer is in correct dtype
+    transformer = transformer.to(weight_dtype)
     
     pipe.transformer = transformer
     
@@ -106,20 +111,20 @@ def train_lora(
         transformer.train()
         
         for batch_idx, batch in enumerate(dataloader):
-            images = batch.to(device, dtype=torch.float16)
+            images = batch.to(device, dtype=weight_dtype)
             
             with torch.no_grad():
                 latents = pipe.vae.encode(images).latent_dist.sample()
-                latents = (latents * pipe.vae.config.scaling_factor).to(torch.float16)
+                latents = (latents * pipe.vae.config.scaling_factor).to(weight_dtype)
             
             # Flow matching: interpolate between noise and latent
-            noise = torch.randn_like(latents, dtype=torch.float16)
-            # Random timestep between 0 and 1
-            timesteps = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
-            timesteps = timesteps.view(-1, 1, 1, 1)
+            noise = torch.randn_like(latents, dtype=weight_dtype)
+            # Timestep for this batch
+            timesteps_1d = torch.rand((latents.shape[0],), device=device, dtype=weight_dtype)
+            timesteps = timesteps_1d.view(-1, 1, 1, 1)
             
             # Linear interpolation for flow matching
-            noisy_latents = (timesteps * latents + (1 - timesteps) * noise).to(torch.float16)
+            noisy_latents = (timesteps * latents + (1 - timesteps) * noise).to(weight_dtype)
             
             # Target is the direction from noise to latent
             target = latents - noise
@@ -137,7 +142,7 @@ def train_lora(
                         return_tensors="pt",
                     ).input_ids.to(device)
                 )
-                encoder_hidden_states = t5_output[0].to(torch.float16)
+                encoder_hidden_states = t5_output[0].to(weight_dtype)
                 
                 # CLIP pooled embeddings
                 clip_output = pipe.text_encoder(
@@ -150,13 +155,13 @@ def train_lora(
                     ).input_ids.to(device),
                     output_hidden_states=False,
                 )
-                pooled_prompt_embeds = clip_output.pooler_output.to(torch.float16)
+                pooled_prompt_embeds = clip_output.pooler_output.to(weight_dtype)
             
             # FLUX requires guidance value
-            guidance_vec = torch.full((latents.shape[0],), 3.5, device=device, dtype=torch.float16)
+            guidance_vec = torch.full((latents.shape[0],), 3.5, device=device, dtype=weight_dtype)
             
             # Timestep for this batch
-            timesteps_1d = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
+            # timesteps_1d already created above
             
             # FLUX packing: (B, C, H, W) -> (B, (H//2)*(W//2), C*4)
             # Standard patch_size is 2. Input channels 16 -> 64.
@@ -175,13 +180,13 @@ def train_lora(
             packed_height = height // patch_size
             packed_width = width // patch_size
             
-            img_ids = torch.zeros(packed_height * packed_width, 3, device=device, dtype=torch.float16)
-            img_ids[:, 1] = torch.arange(packed_height, device=device).repeat_interleave(packed_width).to(torch.float16)
-            img_ids[:, 2] = torch.arange(packed_width, device=device).repeat(packed_height).to(torch.float16)
+            img_ids = torch.zeros(packed_height * packed_width, 3, device=device, dtype=weight_dtype)
+            img_ids[:, 1] = torch.arange(packed_height, device=device).repeat_interleave(packed_width).to(weight_dtype)
+            img_ids[:, 2] = torch.arange(packed_width, device=device).repeat(packed_height).to(weight_dtype)
             
             # Text position IDs (seq_len x 3)
             txt_seq_len = encoder_hidden_states.shape[1]
-            txt_ids = torch.zeros(txt_seq_len, 3, device=device, dtype=torch.float16)
+            txt_ids = torch.zeros(txt_seq_len, 3, device=device, dtype=weight_dtype)
             
             # Pass packed hidden_states
             model_pred = transformer(

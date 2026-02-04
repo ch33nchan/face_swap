@@ -82,10 +82,10 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
         logger.info("Continuing without LORA for testing...")
     
     # Generate image
-    prompt_text = "photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
+    prompt = "photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
     
-    # Klein uses a chat-based text encoder (Qwen/Mistral), so prompt must be a conversation
-    prompt = [{"role": "user", "content": prompt_text}]
+    # Klein pipeline (custom) seems brittle with chat templates, try simpler string first
+    # If it fails again, the pipeline code itself might be assuming certain prompt structure
     
     logger.info("Generating image...")
     result = pipe(
