@@ -106,27 +106,52 @@ def train_lora(
                 latents = pipe.vae.encode(images).latent_dist.sample()
                 latents = latents * pipe.vae.config.scaling_factor
             
+            # Flow matching: interpolate between noise and latent
             noise = torch.randn_like(latents)
-            timesteps = torch.randint(
-                0, pipe.scheduler.config.num_train_timesteps,
-                (latents.shape[0],), device=device
-            ).long()
+            # Random timestep between 0 and 1
+            timesteps = torch.rand((latents.shape[0],), device=device)
+            timesteps = timesteps.view(-1, 1, 1, 1)
             
-            noisy_latents = pipe.scheduler.add_noise(latents, noise, timesteps)
+            # Linear interpolation for flow matching
+            noisy_latents = timesteps * latents + (1 - timesteps) * noise
             
+            # Target is the direction from noise to latent
+            target = latents - noise
+            
+            # Get prompt embeddings (use empty prompt for unconditional training)
             with torch.no_grad():
                 prompt_embeds = pipe.text_encoder(
-                    torch.zeros((latents.shape[0],), device=device, dtype=torch.long)
+                    pipe.tokenizer(
+                        "",
+                        padding="max_length",
+                        max_length=pipe.tokenizer.model_max_length,
+                        truncation=True,
+                        return_tensors="pt",
+                    ).input_ids.to(device)
+                )[0]
+                
+                pooled_prompt_embeds = pipe.text_encoder_2(
+                    pipe.tokenizer_2(
+                        "",
+                        padding="max_length",
+                        max_length=pipe.tokenizer_2.model_max_length,
+                        truncation=True,
+                        return_tensors="pt",
+                    ).input_ids.to(device)
                 )[0]
             
+            # Get model prediction
+            timesteps_single = timesteps.squeeze().to(device)
             model_pred = transformer(
-                noisy_latents,
-                timesteps,
-                prompt_embeds,
+                hidden_states=noisy_latents,
+                timestep=timesteps_single,
+                encoder_hidden_states=prompt_embeds,
+                pooled_projections=pooled_prompt_embeds,
                 return_dict=False,
             )[0]
             
-            loss = torch.nn.functional.mse_loss(model_pred, noise)
+            # Compute loss
+            loss = torch.nn.functional.mse_loss(model_pred, target)
             
             optimizer.zero_grad()
             loss.backward()
