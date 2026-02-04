@@ -20,13 +20,11 @@ def download_klein_lora(repo_id: str):
     logger.info(f"Listing files in {repo_id}")
     files = list_repo_files(repo_id, token=hf_token)
     
-    # Find Klein 4b LORA
     klein_files = [f for f in files if "klein" in f.lower() and f.endswith(".safetensors")]
     
     if not klein_files:
         raise ValueError(f"No Klein LORA files found in {repo_id}")
     
-    # Prefer 4b version
     target_file = None
     for f in klein_files:
         if "4b" in f:
@@ -57,10 +55,9 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Klein model requires special handling - load components separately
     from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler
     from diffusers.models.transformers import FluxTransformer2DModel
-    from transformers import T5EncoderModel, T5TokenizerFast
+    from transformers import AutoTokenizer, T5EncoderModel
     from safetensors.torch import load_file
     
     logger.info("Loading FLUX Klein components...")
@@ -73,13 +70,14 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
         token=hf_token,
     ).to(device)
     
-    # Load text encoder and tokenizer
-    tokenizer = T5TokenizerFast.from_pretrained(
+    # Load tokenizer with AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
         subfolder="tokenizer",
         token=hf_token,
     )
     
+    # Load text encoder
     text_encoder = T5EncoderModel.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
         subfolder="text_encoder",
@@ -102,24 +100,20 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
         token=hf_token,
     )
     
-    # Load LORA weights
+    # Load and inspect LORA weights
     logger.info(f"Loading LORA weights from {lora_path}")
     lora_state_dict = load_file(lora_path)
     
-    # Apply LORA to transformer
-    from peft import LoraConfig, get_peft_model, set_peft_model_state_dict
-    
-    # Check LORA keys to determine target modules
     lora_keys = list(lora_state_dict.keys())
     logger.info(f"LORA has {len(lora_keys)} keys")
-    logger.info(f"Sample keys: {lora_keys[:5]}")
+    if lora_keys:
+        logger.info(f"Sample keys: {lora_keys[:3]}")
     
-    # Generate image using text-to-image
-    logger.info("Generating image with Klein + LORA")
+    # Generate image
+    logger.info("Generating image with Klein model")
     
     prompt = "photorealistic portrait, high quality, detailed face, natural lighting"
     
-    # Encode prompt
     text_inputs = tokenizer(
         prompt,
         padding="max_length",
@@ -129,36 +123,38 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     ).to(device)
     
     with torch.no_grad():
-        prompt_embeds = text_encoder(text_inputs.input_ids)[0]
+        prompt_embeds = text_encoder(text_inputs.input_ids)[0].to(torch.float16)
     
-    # Generate latents
-    latent_height = 128
-    latent_width = 128
+    latent_height = 64
+    latent_width = 64
     latents = torch.randn(
-        (1, 16, latent_height, latent_width),
+        (1, transformer.config.in_channels, latent_height, latent_width),
         device=device,
         dtype=torch.float16,
     )
     
-    # Denoise
     scheduler.set_timesteps(28)
     
-    for t in scheduler.timesteps:
+    logger.info("Running denoising loop...")
+    for i, t in enumerate(scheduler.timesteps):
+        timestep = t.to(device).unsqueeze(0).to(torch.float16)
+        
         with torch.no_grad():
             noise_pred = transformer(
                 hidden_states=latents,
-                timestep=t.unsqueeze(0).to(device),
+                timestep=timestep,
                 encoder_hidden_states=prompt_embeds,
                 return_dict=False,
             )[0]
         
         latents = scheduler.step(noise_pred, t, latents).prev_sample
+        
+        if i % 5 == 0:
+            logger.info(f"Step {i+1}/{len(scheduler.timesteps)}")
     
-    # Decode
     with torch.no_grad():
         image = vae.decode(latents / vae.config.scaling_factor).sample
     
-    # Convert to PIL
     image = (image / 2 + 0.5).clamp(0, 1)
     image = image.cpu().permute(0, 2, 3, 1).numpy()[0]
     image = (image * 255).astype("uint8")
@@ -171,7 +167,7 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
 def main():
     parser = argparse.ArgumentParser(description="Test BFS LORA with FLUX Klein")
     parser.add_argument("--repo-id", type=str, default="Alissonerdx/BFS-Best-Face-Swap")
-    parser.add_argument("--lora-path", type=str, help="Path to LORA file (downloads if not provided)")
+    parser.add_argument("--lora-path", type=str)
     parser.add_argument("--base-image", type=str, required=True)
     parser.add_argument("--reference-image", type=str, required=True)
     parser.add_argument("--output", type=str, default="output_klein.png")

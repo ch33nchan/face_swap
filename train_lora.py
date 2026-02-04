@@ -121,19 +121,11 @@ def train_lora(
             # Target is the direction from noise to latent
             target = latents - noise
             
-            # Get prompt embeddings (use empty prompt for unconditional training)
+            # Get prompt embeddings
+            # FLUX uses: CLIP (text_encoder) for pooled_projections, T5 (text_encoder_2) for encoder_hidden_states
             with torch.no_grad():
-                prompt_embeds = pipe.text_encoder(
-                    pipe.tokenizer(
-                        "",
-                        padding="max_length",
-                        max_length=pipe.tokenizer.model_max_length,
-                        truncation=True,
-                        return_tensors="pt",
-                    ).input_ids.to(device)
-                )[0]
-                
-                text_enc_2_outputs = pipe.text_encoder_2(
+                # T5 encoder_hidden_states
+                t5_output = pipe.text_encoder_2(
                     pipe.tokenizer_2(
                         "",
                         padding="max_length",
@@ -142,9 +134,20 @@ def train_lora(
                         return_tensors="pt",
                     ).input_ids.to(device)
                 )
+                encoder_hidden_states = t5_output[0].to(torch.float16)
                 
-                # T5 encoder returns last_hidden_state, use pooled from position 0
-                pooled_prompt_embeds = text_enc_2_outputs[0][:, 0, :]
+                # CLIP pooled embeddings
+                clip_output = pipe.text_encoder(
+                    pipe.tokenizer(
+                        "",
+                        padding="max_length",
+                        max_length=pipe.tokenizer.model_max_length,
+                        truncation=True,
+                        return_tensors="pt",
+                    ).input_ids.to(device),
+                    output_hidden_states=False,
+                )
+                pooled_prompt_embeds = clip_output.pooler_output.to(torch.float16)
             
             # FLUX requires guidance value
             guidance_vec = torch.full((latents.shape[0],), 3.5, device=device, dtype=torch.float16)
@@ -157,7 +160,7 @@ def train_lora(
                 timestep=timesteps_1d,
                 guidance=guidance_vec,
                 pooled_projections=pooled_prompt_embeds,
-                encoder_hidden_states=prompt_embeds,
+                encoder_hidden_states=encoder_hidden_states,
                 return_dict=False,
             )[0]
             
