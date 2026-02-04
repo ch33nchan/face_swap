@@ -54,19 +54,21 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     if not hf_token:
         raise ValueError("HF_TOKEN required for Klein model")
     
-    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Using device: {device}")
+    # Set visible devices to target GPU
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Using device: {device} (mapped to GPU {gpu_id})")
     
     from diffusers import Flux2Pipeline
     
     logger.info("Loading FLUX Klein pipeline...")
     
-    # Load with device_map to handle meta tensors
+    # Load with device_map="balanced" to handle loading efficiently
     pipe = Flux2Pipeline.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
         torch_dtype=torch.float16,
         token=hf_token,
-        device_map=device,
+        device_map="balanced",
     )
     
     # Load LORA weights

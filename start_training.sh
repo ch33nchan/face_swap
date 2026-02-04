@@ -24,7 +24,6 @@ python3 train_lora.py \
     --gpu-id "$GPU_ID" \
     --lr 1e-4 \
     --batch-size 1 \
-    --save-every 10 \
-    --device cuda
+    --save-every 10
 
 echo "Training complete. Check $OUTPUT_DIR for results and metrics."
