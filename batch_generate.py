@@ -51,6 +51,10 @@ def main():
             "black-forest-labs/FLUX.1-dev",
             torch_dtype=torch.bfloat16
         ).to(device)
+        
+        # CRITICAL: Force VAE to float32 to avoid artifacts/noise
+        pipe.vae = pipe.vae.to(dtype=torch.float32)
+        
     except Exception as e:
         print(f"Error loading FluxImg2ImgPipeline: {e}")
         print("Make sure diffusers is updated.")
