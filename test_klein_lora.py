@@ -104,7 +104,14 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     ).to("cuda")
     
     with torch.no_grad():
-        prompt_embeds = pipe.text_encoder(text_inputs.input_ids)[0]
+        # Get hidden states, not logits
+        outputs = pipe.text_encoder(text_inputs.input_ids, output_hidden_states=True)
+        # Use last hidden state (or second to last? FLUX usually uses last)
+        # Qwen output[0] is logits. output.hidden_states is tuple.
+        prompt_embeds = outputs.hidden_states[-1]
+    
+    # Check shape - we expect (B, SeqLen, 3072) or 4096 depending on model size
+    logger.info(f"Prompt embeddings shape: {prompt_embeds.shape}")
     
     # We also need 'text_ids' for FLUX.2 usually? 
     # But pipe() might handle missing text_ids if prompt_embeds is passed.
