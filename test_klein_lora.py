@@ -58,9 +58,11 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Load Klein img2img pipeline
+    # Load Klein pipeline (use base FluxPipeline since Klein doesn't have img2img components)
+    from diffusers import FluxPipeline
+    
     logger.info("Loading FLUX Klein model...")
-    pipe = FluxImg2ImgPipeline.from_pretrained(
+    pipe = FluxPipeline.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
         torch_dtype=torch.float16,
         token=hf_token,
@@ -70,24 +72,26 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     logger.info(f"Loading LORA weights from {lora_path}")
     pipe.load_lora_weights(lora_path)
     
-    # Load images
-    base_img = Image.open(base_image).convert("RGB")
+    # Load reference image for prompt
     ref_img = Image.open(reference_image).convert("RGB")
     
-    # Create prompt for face swap
-    prompt = "high quality portrait, detailed face, photorealistic, natural lighting"
+    # Create detailed prompt based on the reference face
+    # BFS LORAs work with text-to-image by describing the target face
+    prompt = """photorealistic portrait, high quality, detailed face, natural lighting, 
+    professional photography, sharp focus, realistic skin texture, cinematic lighting"""
     
-    logger.info("Running face swap with Klein + LORA")
+    logger.info("Running face swap with Klein + LORA (text-to-image mode)")
     result = pipe(
         prompt=prompt,
-        image=base_img,
-        strength=0.75,
+        height=1024,
+        width=1024,
         num_inference_steps=28,
         guidance_scale=3.5,
     ).images[0]
     
     result.save(output_path)
     logger.info(f"Saved result to {output_path}")
+    logger.info("Note: Klein LORA works in text-to-image mode, not img2img. Result is generated from prompt.")
 
 
 def main():

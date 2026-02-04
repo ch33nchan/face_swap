@@ -133,7 +133,7 @@ def train_lora(
                     ).input_ids.to(device)
                 )[0]
                 
-                pooled_prompt_embeds = pipe.text_encoder_2(
+                text_enc_2_outputs = pipe.text_encoder_2(
                     pipe.tokenizer_2(
                         "",
                         padding="max_length",
@@ -141,13 +141,12 @@ def train_lora(
                         truncation=True,
                         return_tensors="pt",
                     ).input_ids.to(device)
-                )[0]
+                )
                 
-                # Get pooled embeddings from the text encoder 2
-                pooled_prompt_embeds = pooled_prompt_embeds.pooler_output
+                # T5 encoder returns last_hidden_state, use pooled from position 0
+                pooled_prompt_embeds = text_enc_2_outputs[0][:, 0, :]
             
-            # FLUX requires guidance value, not timestep directly
-            # Use guidance=3.5 as default for training
+            # FLUX requires guidance value
             guidance_vec = torch.full((latents.shape[0],), 3.5, device=device, dtype=torch.float16)
             
             # Get model prediction
