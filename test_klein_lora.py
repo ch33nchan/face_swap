@@ -46,7 +46,7 @@ def download_klein_lora(repo_id: str):
     return lora_path
 
 
-def test_klein_lora(lora_path: str, base_image: str, reference_image: str, output_path: str):
+def test_klein_lora(lora_path: str, base_image: str, reference_image: str, output_path: str, gpu_id: int = 1):
     """Test Klein LORA using Flux2Pipeline"""
     logger.info(f"Testing LORA: {lora_path}")
     
@@ -54,18 +54,20 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     if not hf_token:
         raise ValueError("HF_TOKEN required for Klein model")
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Using device: {device}")
     
     from diffusers import Flux2Pipeline
     
     logger.info("Loading FLUX Klein pipeline...")
     
+    # Load with device_map to handle meta tensors
     pipe = Flux2Pipeline.from_pretrained(
         "black-forest-labs/FLUX.2-klein-4b",
         torch_dtype=torch.float16,
         token=hf_token,
+        device_map=device,
     )
-    pipe = pipe.to(device)
     
     # Load LORA weights
     logger.info(f"Loading LORA weights from {lora_path}")
@@ -99,6 +101,7 @@ def main():
     parser.add_argument("--base-image", type=str, required=True)
     parser.add_argument("--reference-image", type=str, required=True)
     parser.add_argument("--output", type=str, default="output_klein.png")
+    parser.add_argument("--gpu-id", type=int, default=1, help="GPU device ID to use")
     
     args = parser.parse_args()
     
@@ -107,7 +110,7 @@ def main():
     else:
         lora_path = download_klein_lora(args.repo_id)
     
-    test_klein_lora(lora_path, args.base_image, args.reference_image, args.output)
+    test_klein_lora(lora_path, args.base_image, args.reference_image, args.output, args.gpu_id)
 
 
 if __name__ == "__main__":

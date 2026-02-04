@@ -43,8 +43,11 @@ def train_lora(
     num_epochs: int = 100,
     batch_size: int = 1,
     save_every: int = 10,
-    device: str = "cuda",
+    gpu_id: int = 0,
 ):
+    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Using device: {device}")
+    
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
@@ -152,27 +155,25 @@ def train_lora(
             # FLUX requires guidance value
             guidance_vec = torch.full((latents.shape[0],), 3.5, device=device, dtype=torch.float16)
             
-            # Get model prediction - timesteps must be 1D
+            # Timestep for this batch
             timesteps_1d = torch.rand((latents.shape[0],), device=device, dtype=torch.float16)
             
-            # Create txt_ids and img_ids required by FLUX (2D tensors)
+            # Create position IDs (2D tensors as required by new diffusers)
             batch_size = latents.shape[0]
             height, width = latents.shape[2], latents.shape[3]
             
-            # Flatten latents for transformer: (B, C, H, W) -> (B, H*W, C)
-            hidden_states = noisy_latents.permute(0, 2, 3, 1).reshape(batch_size, height * width, -1)
-            
-            # Image position IDs (2D: seq_len x 3)
+            # Image position IDs (seq_len x 3)
             img_ids = torch.zeros(height * width, 3, device=device, dtype=torch.float16)
             img_ids[:, 1] = torch.arange(height, device=device).repeat_interleave(width).to(torch.float16)
             img_ids[:, 2] = torch.arange(width, device=device).repeat(height).to(torch.float16)
             
-            # Text position IDs (2D: seq_len x 3)
+            # Text position IDs (seq_len x 3)
             txt_seq_len = encoder_hidden_states.shape[1]
             txt_ids = torch.zeros(txt_seq_len, 3, device=device, dtype=torch.float16)
             
+            # Pass latents directly - transformer will handle reshaping
             model_pred = transformer(
-                hidden_states=hidden_states,
+                hidden_states=noisy_latents,
                 timestep=timesteps_1d,
                 guidance=guidance_vec,
                 pooled_projections=pooled_prompt_embeds,
@@ -253,7 +254,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N epochs")
-    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--gpu-id", type=int, default=0, help="GPU device ID to use")
     
     args = parser.parse_args()
     
@@ -266,7 +267,7 @@ def main():
         num_epochs=args.epochs,
         batch_size=args.batch_size,
         save_every=args.save_every,
-        device=args.device,
+        gpu_id=args.gpu_id,
     )
 
 
