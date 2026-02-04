@@ -106,11 +106,11 @@ def test_klein_lora(lora_path: str, base_image: str, reference_image: str, outpu
     with torch.no_grad():
         # Get hidden states, not logits
         outputs = pipe.text_encoder(text_inputs.input_ids, output_hidden_states=True)
-        # Use last hidden state (or second to last? FLUX usually uses last)
-        # Qwen output[0] is logits. output.hidden_states is tuple.
-        prompt_embeds = outputs.hidden_states[-1]
+        # FLUX.2 Klein concatenates last 3 hidden states (2560 * 3 = 7680)
+        hidden_states = outputs.hidden_states[-3:]
+        prompt_embeds = torch.cat(hidden_states, dim=-1)
     
-    # Check shape - we expect (B, SeqLen, 3072) or 4096 depending on model size
+    # Check shape - we expect (B, SeqLen, 7680)
     logger.info(f"Prompt embeddings shape: {prompt_embeds.shape}")
     
     # We also need 'text_ids' for FLUX.2 usually? 

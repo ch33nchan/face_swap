@@ -14,7 +14,8 @@ wheels/
 .DS_Store
 
 # Training artifacts (exclude outputs, but keep training data)
-lora_output/
+# Training artifacts
+# lora_output/
 logs/
 downloaded_loras/
 
