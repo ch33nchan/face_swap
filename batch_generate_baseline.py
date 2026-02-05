@@ -8,7 +8,7 @@ from diffusers import FluxImg2ImgPipeline
 from torchvision import transforms
 
 # Configuration
-CSV_PATH = "output.csv"
+CSV_PATH = "Master - Tech Solutioning - Char Const - Rerun with head_eye gaze.csv"
 OUTPUT_DIR = "baseline_outputs"
 LORA_PATH = "/mnt/data1/srini/face_swap/downloaded_loras/bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"
 PROMPT = (
