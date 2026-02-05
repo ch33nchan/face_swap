@@ -53,14 +53,11 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     try:
-        # Use float32 to completely eliminate precision issues
-        # Use sequential_cpu_offload to fit in VRAM
+        # Load pipeline in FP32
         pipe = FluxImg2ImgPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
             torch_dtype=torch.float32
         )
-        pipe.enable_sequential_cpu_offload()
-        # pipe.to(device) # Not needed with offload
         
     except Exception as e:
         print(f"Error loading FluxImg2ImgPipeline: {e}")
@@ -73,6 +70,9 @@ def main():
     except Exception as e:
         print(f"Failed to load LoRA: {e}")
         return
+        
+    # Enable offload AFTER LoRA is attached
+    pipe.enable_sequential_cpu_offload()
     
     prompt = "A photo of sks person, photorealistic portrait, high quality, detailed face, natural lighting, professional photography"
     print(f"Using Prompt: {prompt}")
