@@ -8,9 +8,9 @@ OUTPUT_DIR="${3:-./output}"
 GPU_ID="${4:-0}"
 COMFYUI_URL="${5:-http://localhost:8188}"
 
-source venv/bin/activate
 
-python3 src/comfyui_char_const_pipeline.py \
+
+python3 comfyui_char_const_pipeline.py \
   --csv "$CSV_PATH" \
   --workflow "$WORKFLOW_PATH" \
   --output-dir "$OUTPUT_DIR" \
