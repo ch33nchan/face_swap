@@ -91,6 +91,9 @@ def train_lora(
     
     pipe.transformer = transformer
     
+    # Ensure VAE is in float32 to avoid NaN/Garbage during encoding
+    pipe.vae.to(dtype=torch.float32)
+    
     dataset = ImageDataset(image_dir)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
@@ -111,7 +114,8 @@ def train_lora(
         transformer.train()
         
         for batch_idx, batch in enumerate(dataloader):
-            images = batch.to(device, dtype=weight_dtype)
+            # Use float32 for VAE encoding
+            images = batch.to(device, dtype=torch.float32)
             
             with torch.no_grad():
                 latents = pipe.vae.encode(images).latent_dist.sample()
