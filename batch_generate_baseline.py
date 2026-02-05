@@ -38,13 +38,28 @@ def batch_generate_baseline():
 
     print(f"Loading Baseline LoRA from {LORA_PATH}...")
     try:
-        # Use load_lora_weights for external LoRA file
-        pipe.load_lora_weights(LORA_PATH)
+        from safetensors.torch import load_file
+        state_dict = load_file(LORA_PATH)
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            # Manual mapping from ComfyUI/Flux format to Diffusers
+            new_k = k.replace("diffusion_model.", "transformer.")
+            new_k = new_k.replace("double_blocks.", "transformer_blocks.")
+            new_k = new_k.replace("single_blocks.", "single_transformer_blocks.")
+            new_state_dict[new_k] = v
+            
+        # Use load_lora_weights with the mapped dict
+        pipe.load_lora_weights(new_state_dict, adapter_name="baseline")
         print("LoRA loaded.")
     except Exception as e:
         print(f"Failed to load LoRA: {e}")
-        return
-        
+        # Try loading directly if mapping failed, though unlikely to work if previous attempt failed
+        try:
+             pipe.load_lora_weights(LORA_PATH)
+             print("LoRA loaded via direct path (fallback).")
+        except:
+             print("Comparing Baseline (without LoRA) vs Base Model...")
+
     pipe.enable_sequential_cpu_offload()
     
     # Load CSV
@@ -59,7 +74,11 @@ def batch_generate_baseline():
     for index, row in df.iterrows():
         try:
             print(f"Processing Row {index}...")
-            image_url = row['image_url']
+            # Use 'Original Image' as the URL column
+            image_url = row.get('Original Image', row.get('image_url'))
+            if not image_url:
+                print("No image URL found.")
+                continue
             
             # Download Image
             response = requests.get(image_url)
