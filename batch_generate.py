@@ -49,18 +49,21 @@ def main():
     print("Loading FLUX Img2Img...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    print("Loading FLUX Img2Img...")
+    print("Loading FLUX Img2Img (FP32 + CPU Offload)...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     try:
-        # Use float16 which is often more stable for VAE than bfloat16 on some hardware
+        # Use float32 to completely eliminate precision issues
+        # Use sequential_cpu_offload to fit in VRAM
         pipe = FluxImg2ImgPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
-            torch_dtype=torch.float16
-        ).to(device)
+            torch_dtype=torch.float32
+        )
+        pipe.enable_sequential_cpu_offload()
+        # pipe.to(device) # Not needed with offload
+        
     except Exception as e:
         print(f"Error loading FluxImg2ImgPipeline: {e}")
-        print("Make sure diffusers is updated.")
         return
 
     print("Loading LoRA...")
